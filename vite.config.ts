@@ -6,6 +6,7 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 import VueRouter from 'vue-router/vite'
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/travel-app/',
   plugins: [
     VueRouter({
       // 預設掃描 src/views 的資料夾
