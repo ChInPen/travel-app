@@ -4,23 +4,14 @@ import { useRouter } from 'vue-router'
 const router = useRouter()
 import { formattedDate } from '@/utils/udate'
 import { gasGet } from '@/utils/ugas'
-const GAS_URL = import.meta.env.VITE_GAS_URL
-const GAS_KEY = import.meta.env.VITE_GAS_KEY
 const itineraryDays = ref([])
 const isLoading = ref(false)
-const errorMsg = ref('')
 onMounted(async () => {
 	isLoading.value = true
-	errorMsg.value = ''
 	try {
-		const url = new URL(GAS_URL)
-		url.searchParams.set('key', GAS_KEY)
-		url.searchParams.set('type', '總預覽')
-		const res = await fetch(url)
-		if (!res.ok) {
-			throw new Error(`HTTP 狀態碼異常：${res.status}`)
-		}
-		const result = await res.json()
+		const result = await gasGet('總預覽')
+		console.log('result', result)
+		if (result === false) return
 		result.items.forEach((el, idx) => {
 			if (el.日期 == '') {
 				el.日期 = result.items[idx - 1].日期
@@ -28,16 +19,13 @@ onMounted(async () => {
 			const date = formattedDate('ja-JP', el.日期)
 			el.日期 = date
 		})
-		console.log('res', result)
 		itineraryDays.value.push({
 			day: 0,
 			date: '預覽',
 			title: "",
 			items: result.items
 		})
-	} catch (error) {
-		console.error('抓取資料失敗', error)
-		errorMsg.value = '無法取得資料，請稍後再試'
+	} catch {
 	} finally {
 		isLoading.value = false
 	}
