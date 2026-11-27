@@ -370,7 +370,7 @@ function getSettlementClass(amount: number): string {
 			</div>
 		</div>
 		<!-- 底部，懸浮按鈕 -->
-		<button type="button" data-bs-toggle="modal" data-bs-target="#exampleModal"
+		<button :disabled="isLoading" type="button" data-bs-toggle="modal" data-bs-target="#exampleModal"
 			class="btn btn-primary rounded-circle shadow-lg position-fixed bottom-0 end-0 m-3 m-md-4 p-0 d-inline-flex flex-column align-items-center justify-content-center z-3"
 			style="width: 3rem; height: 3rem; line-height: 1.15;">
 			<span class="fw-semibold" style="font-size: 0.7rem;">個人</span>
