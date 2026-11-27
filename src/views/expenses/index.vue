@@ -1,16 +1,59 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, handleError } from 'vue'
+import { computed, ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import Swal from 'sweetalert2'
 import { gasGet, gasPost } from '@/utils/ugas'
 
 const router = useRouter()
 
-const members = ['金笨', '小謝', 'Book']
-const expenses = ref<expensesType[]>([])
+type MemberName = '金笨' | 'Book' | '小謝';
+const MEMBERS: MemberName[] = ['金笨', 'Book', '小謝'];
+const expenses = ref<ExpensesType[]>([])
 const isLoading = ref(false)
 const showAddModal = ref(false)
-
+interface ExpensesType {
+	id: string
+	原因: string
+	金額: number
+	付款人: string
+	幣別: string
+	平分: string[] | string
+	補充說明: string
+}
+export interface CostSummary {
+	// JPY 個人總花費
+	jpySpent: number;
+	// JPY 實際計算後要收或付的金額（正數應收、負數應付）
+	jpySettlement: number;
+	// TWD 個人總花費
+	twdSpent: number;
+	// TWD 實際計算後要收或付的金額（正數應收、負數應付）
+	twdSettlement: number;
+}
+const costTotal = ref<{
+	金笨: CostSummary
+	Book: CostSummary
+	小謝: CostSummary
+}>({
+	金笨: {
+		jpySpent: 0,
+		jpySettlement: 0,
+		twdSpent: 0,
+		twdSettlement: 0
+	},
+	Book: {
+		jpySpent: 0,
+		jpySettlement: 0,
+		twdSpent: 0,
+		twdSettlement: 0
+	},
+	小謝: {
+		jpySpent: 0,
+		jpySettlement: 0,
+		twdSpent: 0,
+		twdSettlement: 0
+	}
+})
 onMounted(async () => {
 	getData()
 	window.addEventListener('keydown', handleKeydown)
@@ -19,12 +62,14 @@ onMounted(async () => {
 onUnmounted(() => {
 	window.removeEventListener('keydown', handleKeydown)
 })
+
 async function getData() {
 	try {
 		isLoading.value = true
 		const result = await gasGet('花費')
 		if (result === false) return
-		expenses.value = result.items.map((el: expensesType, idx: number) => ({
+
+		const validItems = result.items.filter((el: ExpensesType) => el.id !== '').map((el: ExpensesType) => ({
 			...el,
 			平分: Array.isArray(el.平分)
 				? el.平分.map((name) => String(name).trim()).filter(Boolean)
@@ -36,7 +81,17 @@ async function getData() {
 						.filter(Boolean)
 					: []
 		}))
-	} catch {
+		expenses.value = validItems;
+		result.items.slice(0, 4).forEach((el: any, index: number) => {
+			const key = ['jpySpent', 'jpySettlement', 'twdSpent', 'twdSettlement'] as (keyof CostSummary)[];
+			const title = key[index]
+			if (!title) return;
+			MEMBERS.forEach((name) => {
+				costTotal.value[name][title] = el[name]
+			})
+		})
+	} catch (error) {
+		console.error('抓取資料失敗', error)
 	} finally {
 		isLoading.value = false
 	}
@@ -46,25 +101,19 @@ function createExpenseId(): string {
 	const randomCode = Math.random().toString(36).slice(2, 6);
 	return `exp_${timestamp}_${randomCode}`;
 }
-interface expensesType {
-	id: string
-	原因: string
-	金額: number
-	付款人: string
-	幣別: string
-	平分: string[] | string
-	補充說明: string
-}
 
 const title = ref('')
 const amount = ref('')
 const currency = ref('JPY')
-const payer = ref(members[0])
-const splitters = ref([...members])
+const payer = ref(MEMBERS[0])
+const splitters = ref([...MEMBERS])
 const note = ref('')
 
-const totalAmount = computed(() => {
-	return expenses.value.reduce((sum, item) => sum + Number(item.金額 || 0), 0)
+const JPYtotalAmount = computed(() => {
+	return costTotal.value.金笨.jpySpent + costTotal.value.小謝.jpySpent + costTotal.value.Book.jpySpent
+})
+const TWDtotalAmount = computed(() => {
+	return costTotal.value.金笨.twdSpent + costTotal.value.小謝.twdSpent + costTotal.value.Book.twdSpent
 })
 
 function openAddModal() {
@@ -93,7 +142,7 @@ async function addExpense() {
 
 	const selectedSplitters: string[] =
 		splitters.value.length > 0
-			? splitters.value.filter((name): name is string => Boolean(name && name.trim()))
+			? splitters.value.filter((name) => Boolean(name && name.trim()))
 			: payer.value
 				? [payer.value]
 				: []
@@ -102,7 +151,7 @@ async function addExpense() {
 		id: createExpenseId(),
 		原因: title.value.trim(),
 		金額: numericAmount,
-		付款人: payer.value ?? members[0] ?? '',
+		付款人: payer.value ?? MEMBERS[0] ?? '',
 		幣別: currency.value ?? 'JPY',
 		平分: selectedSplitters,
 		補充說明: note.value.trim()
@@ -118,15 +167,15 @@ async function addExpense() {
 		})
 	} catch (error) {
 		console.error("新增失敗", error)
-		getData()
 	} finally {
+		getData()
 		isLoading.value = false
 	}
 	title.value = ''
 	amount.value = ''
 	currency.value = 'JPY'
-	payer.value = members[0]
-	splitters.value = [...members]
+	payer.value = MEMBERS[0]
+	splitters.value = [...MEMBERS]
 	note.value = ''
 }
 
@@ -134,7 +183,7 @@ function goItinerary() {
 	router.push('/itinerary')
 }
 
-function hasDel(item: expensesType) {
+function hasDel(item: ExpensesType) {
 	Swal.fire({
 		icon: 'question',
 		title: '確定要刪除?',
@@ -143,25 +192,52 @@ function hasDel(item: expensesType) {
 		confirmButtonText: '是',
 		denyButtonText: '否'
 	}).then(async (res) => {
+
 		if (res.isConfirmed) {
 			expenses.value = expenses.value.filter((el) => el.id !== item.id)
+			const plyload: ExpensesType = {
+				id: item.id,
+				付款人: item.付款人,
+				原因: item.原因,
+				平分: item.平分,
+				幣別: item.幣別,
+				金額: item.金額,
+				補充說明: item.補充說明
+			}
 			try {
 				isLoading.value = true
-				await gasPost('花費', 'delete', item)
+				await gasPost('花費', 'delete', plyload)
 				Swal.fire({
 					icon: "success",
 					title: "刪除成功!"
 				})
 			} catch (error) {
 				console.error("刪除失敗", error)
-				getData()
 			} finally {
+				getData()
 				isLoading.value = false
 			}
 		}
 	})
 }
+// 個人花費
+const selectedMember = ref<MemberName>('金笨');
+function formatCurrency(amount: number, currency: 'JPY' | 'TWD'): string {
+	const prefix = currency === 'JPY' ? '¥' : 'NT$';
+	return `${prefix}${Math.abs(amount).toLocaleString()}`;
+}
 
+function getSettlementLabel(amount: number): string {
+	if (amount > 0) return '應收';
+	if (amount < 0) return '應付';
+	return '已結清';
+}
+
+function getSettlementClass(amount: number): string {
+	if (amount > 0) return 'text-success fw-bold';
+	if (amount < 0) return 'text-danger fw-bold';
+	return 'text-secondary fw-semibold';
+}
 
 </script>
 
@@ -172,8 +248,8 @@ function hasDel(item: expensesType) {
 				<div>
 					<h1 class="h5 fw-bold mb-0">旅遊記帳</h1>
 					<div class="d-flex gap-2">
-						<small class="text-secondary">累積支出：NT${{ totalAmount.toLocaleString() }}</small>
-						<small class="text-secondary">累積支出：JPY¥{{ totalAmount.toLocaleString() }}</small>
+						<small class="text-secondary">累積支出：NT${{ TWDtotalAmount }}</small>
+						<small class="text-secondary">累積支出：JPY¥{{ JPYtotalAmount }}</small>
 					</div>
 				</div>
 				<button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" @click="goItinerary"
@@ -258,7 +334,7 @@ function hasDel(item: expensesType) {
 						<div>
 							<label class="form-label small mb-1">付款人</label>
 							<select v-model="payer" class="form-select">
-								<option v-for="person in members" :key="person" :value="person">
+								<option v-for="person in MEMBERS" :key="person" :value="person">
 									{{ person }}
 								</option>
 							</select>
@@ -267,7 +343,7 @@ function hasDel(item: expensesType) {
 						<div>
 							<label class="form-label small mb-1">分攤對象</label>
 							<div class="d-flex flex-wrap gap-2">
-								<label v-for="person in members" :key="person" class="btn btn-sm rounded-pill"
+								<label v-for="person in MEMBERS" :key="person" class="btn btn-sm rounded-pill"
 									:class="splitters.includes(person) ? 'btn-primary' : 'btn-outline-secondary'">
 									<input v-model="splitters" type="checkbox" :value="person" class="d-none" />
 									{{ person }}
@@ -290,6 +366,106 @@ function hasDel(item: expensesType) {
 							</button>
 						</div>
 					</form>
+				</div>
+			</div>
+		</div>
+		<!-- 底部，懸浮按鈕 -->
+		<button type="button" data-bs-toggle="modal" data-bs-target="#exampleModal"
+			class="btn btn-primary rounded-circle shadow-lg position-fixed bottom-0 end-0 m-3 m-md-4 p-0 d-inline-flex flex-column align-items-center justify-content-center z-3"
+			style="width: 3rem; height: 3rem; line-height: 1.15;">
+			<span class="fw-semibold" style="font-size: 0.7rem;">個人</span>
+			<span class="fw-semibold" style="font-size: 0.7rem;">花費</span>
+		</button>
+
+		<!-- 個人花費彈窗 -->
+		<div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+			<div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+				<div class="modal-content">
+					<div class="modal-header">
+						<h5 class="modal-title" id="exampleModalLabel">個人花費與結算</h5>
+						<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+					</div>
+
+					<div class="modal-body">
+						<!-- 成員切換 -->
+						<div class="btn-group w-100 mb-3" role="group" aria-label="選擇成員">
+							<button v-for="member in MEMBERS" :key="member" type="button" class="btn"
+								:class="selectedMember === member ? 'btn-primary' : 'btn-outline-primary'"
+								@click="selectedMember = member">
+								{{ member }}
+							</button>
+						</div>
+
+						<!-- JPY 區塊 -->
+						<div class="border rounded-3 p-3 mb-3 bg-light-subtle">
+							<div class="d-flex justify-content-between align-items-center mb-2">
+								<span class="fw-bold">日幣（JPY）</span>
+								<span class="badge" :class="costTotal[selectedMember].jpySettlement > 0
+									? 'text-bg-success'
+									: costTotal[selectedMember].jpySettlement < 0
+										? 'text-bg-danger'
+										: 'text-bg-secondary'
+									">
+									{{ getSettlementLabel(costTotal[selectedMember].jpySettlement) }}
+								</span>
+							</div>
+
+							<div class="d-flex justify-content-between py-1 border-bottom">
+								<span class="text-secondary">目前花費</span>
+								<span class="fw-semibold">
+									{{ formatCurrency(costTotal[selectedMember].jpySpent, 'JPY') }}
+								</span>
+							</div>
+
+							<div class="d-flex justify-content-between pt-2">
+								<span class="text-secondary">
+									{{ getSettlementLabel(costTotal[selectedMember].jpySettlement) }}金額
+								</span>
+								<span :class="getSettlementClass(costTotal[selectedMember].jpySettlement)">
+									<template v-if="costTotal[selectedMember].jpySettlement > 0">+</template>
+									<template v-else-if="costTotal[selectedMember].jpySettlement < 0">-</template>
+									{{ formatCurrency(costTotal[selectedMember].jpySettlement, 'JPY') }}
+								</span>
+							</div>
+						</div>
+
+						<!-- TWD 區塊 -->
+						<div class="border rounded-3 p-3 bg-light-subtle">
+							<div class="d-flex justify-content-between align-items-center mb-2">
+								<span class="fw-bold">台幣（TWD）</span>
+								<span class="badge" :class="costTotal[selectedMember].twdSettlement > 0
+									? 'text-bg-success'
+									: costTotal[selectedMember].twdSettlement < 0
+										? 'text-bg-danger'
+										: 'text-bg-secondary'
+									">
+									{{ getSettlementLabel(costTotal[selectedMember].twdSettlement) }}
+								</span>
+							</div>
+
+							<div class="d-flex justify-content-between py-1 border-bottom">
+								<span class="text-secondary">目前花費</span>
+								<span class="fw-semibold">
+									{{ formatCurrency(costTotal[selectedMember].twdSpent, 'TWD') }}
+								</span>
+							</div>
+
+							<div class="d-flex justify-content-between pt-2">
+								<span class="text-secondary">
+									{{ getSettlementLabel(costTotal[selectedMember].twdSettlement) }}金額
+								</span>
+								<span :class="getSettlementClass(costTotal[selectedMember].twdSettlement)">
+									<template v-if="costTotal[selectedMember].twdSettlement > 0">+</template>
+									<template v-else-if="costTotal[selectedMember].twdSettlement < 0">-</template>
+									{{ formatCurrency(costTotal[selectedMember].twdSettlement, 'TWD') }}
+								</span>
+							</div>
+						</div>
+					</div>
+
+					<div class="modal-footer">
+						<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+					</div>
 				</div>
 			</div>
 		</div>
